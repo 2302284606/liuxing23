@@ -47,9 +47,12 @@ export class LaserScanner {
 
   // 初始化输入事件
   private initInput() {
+    // 获取canvas元素
+    const canvas = this.app.canvas;
+    
     // 鼠标移动事件
-    this.app.renderer.view.addEventListener('mousemove', (e) => {
-      const rect = this.app.renderer.view.getBoundingClientRect();
+    canvas.addEventListener('mousemove', (e) => {
+      const rect = canvas.getBoundingClientRect();
       this.targetPosition = {
         x: e.clientX - rect.left,
         y: e.clientY - rect.top
@@ -57,9 +60,9 @@ export class LaserScanner {
     });
 
     // 触摸移动事件
-    this.app.renderer.view.addEventListener('touchmove', (e) => {
+    canvas.addEventListener('touchmove', (e) => {
       e.preventDefault();
-      const rect = this.app.renderer.view.getBoundingClientRect();
+      const rect = canvas.getBoundingClientRect();
       const touch = e.touches[0];
       this.targetPosition = {
         x: touch.clientX - rect.left,
@@ -68,21 +71,21 @@ export class LaserScanner {
     });
 
     // 鼠标/触摸按下事件 - 激活激光
-    this.app.renderer.view.addEventListener('mousedown', () => {
+    canvas.addEventListener('mousedown', () => {
       this.activate();
     });
 
-    this.app.renderer.view.addEventListener('touchstart', (e) => {
+    canvas.addEventListener('touchstart', (e) => {
       e.preventDefault();
       this.activate();
     });
 
     // 鼠标/触摸释放事件 - 禁用激光
-    this.app.renderer.view.addEventListener('mouseup', () => {
+    canvas.addEventListener('mouseup', () => {
       this.deactivate();
     });
 
-    this.app.renderer.view.addEventListener('touchend', () => {
+    canvas.addEventListener('touchend', () => {
       this.deactivate();
     });
   }

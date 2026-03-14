@@ -272,6 +272,9 @@ async function initPixi() {
 
   // 游戏主循环
   app.ticker.add(gameLoop);
+  
+  // 初始化测试按钮
+  initTestButtons();
 }
 
 // 创建玩家
@@ -588,6 +591,102 @@ function spawnEnemies() {
     enemies.push(enemy);
     console.log('Enemy added. Total enemies:', enemies.length);
   }
+}
+
+// 测试函数：生成一排敌人
+function spawnTestEnemies() {
+  // 清空现有敌人
+  enemies.forEach(enemy => app.stage.removeChild(enemy));
+  enemies = [];
+  
+  // 生成一排敌人
+  const count = 10;
+  const startX = 100;
+  const startY = app.screen.height / 2;
+  const spacing = 80;
+  
+  for (let i = 0; i < count; i++) {
+    const enemy = new PIXI.Graphics();
+    enemy.rect(-20, -20, 40, 40);
+    enemy.fill(config.enemyColor);
+    enemy.zIndex = 5;
+    enemy.x = startX + i * spacing;
+    enemy.y = startY;
+    app.stage.addChild(enemy);
+    enemies.push(enemy);
+  }
+  
+  console.log('Test enemies spawned. Total:', enemies.length);
+}
+
+// 测试函数：生成大量敌人
+function spawnManyEnemies() {
+  // 清空现有敌人
+  enemies.forEach(enemy => app.stage.removeChild(enemy));
+  enemies = [];
+  
+  // 生成100个敌人
+  const count = 100;
+  
+  for (let i = 0; i < count; i++) {
+    const enemy = new PIXI.Graphics();
+    enemy.rect(-20, -20, 40, 40);
+    enemy.fill(config.enemyColor);
+    enemy.zIndex = 5;
+    enemy.x = Math.random() * app.screen.width;
+    enemy.y = Math.random() * app.screen.height;
+    app.stage.addChild(enemy);
+    enemies.push(enemy);
+  }
+  
+  console.log('Many enemies spawned. Total:', enemies.length);
+}
+
+// 添加测试按钮
+function addTestButtons() {
+  // 创建测试按钮容器
+  const testContainer = document.createElement('div');
+  testContainer.style.position = 'fixed';
+  testContainer.style.top = '10px';
+  testContainer.style.right = '10px';
+  testContainer.style.zIndex = '1000';
+  testContainer.style.display = 'flex';
+  testContainer.style.flexDirection = 'column';
+  testContainer.style.gap = '10px';
+  
+  // 生成测试敌人按钮
+  const testButton = document.createElement('button');
+  testButton.textContent = '生成测试敌人';
+  testButton.style.padding = '10px';
+  testButton.style.backgroundColor = 'rgba(255, 0, 0, 0.8)';
+  testButton.style.color = 'white';
+  testButton.style.border = 'none';
+  testButton.style.borderRadius = '5px';
+  testButton.style.cursor = 'pointer';
+  testButton.addEventListener('click', spawnTestEnemies);
+  
+  // 生成大量敌人按钮
+  const manyButton = document.createElement('button');
+  manyButton.textContent = '生成100个敌人';
+  manyButton.style.padding = '10px';
+  manyButton.style.backgroundColor = 'rgba(255, 165, 0, 0.8)';
+  manyButton.style.color = 'white';
+  manyButton.style.border = 'none';
+  manyButton.style.borderRadius = '5px';
+  manyButton.style.cursor = 'pointer';
+  manyButton.addEventListener('click', spawnManyEnemies);
+  
+  // 添加到容器
+  testContainer.appendChild(testButton);
+  testContainer.appendChild(manyButton);
+  
+  // 添加到页面
+  document.body.appendChild(testContainer);
+}
+
+// 在游戏初始化时添加测试按钮
+function initTestButtons() {
+  setTimeout(addTestButtons, 1000);
 }
 
 // 移动敌人
