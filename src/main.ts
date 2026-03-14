@@ -1,7 +1,7 @@
 import * as PIXI from 'pixi.js';
 import nipplejs from 'nipplejs';
 import { Howl, Howler } from 'howler';
-import { LaserScanner } from './weapon';
+import { LaserScanner, LaserManager } from './weapon';
 import { soundManager } from './soundManager';
 
 // 游戏配置
@@ -53,6 +53,9 @@ let moveDirection = { x: 0, y: 0 };
 let lastSpawnTime = 0;
 let lastShootTime = 0;
 let laserScanner: LaserScanner;
+let lastFrameTime = Date.now();
+let frameCount = 0;
+let fps = 60;
 
 // 这是一个极短的 Base64 叮声，确保 100% 能响
 const TING_BASE64 = "data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YTdvT18AZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAABfX19f";
@@ -295,6 +298,22 @@ async function initPixi() {
   
   // 创建设置菜单
   createSettingsMenu();
+  
+  // 监听GAME_PAUSE事件
+  document.addEventListener('GAME_PAUSE', (event) => {
+    const paused = (event as CustomEvent).detail.paused;
+    if (paused) {
+      app.ticker.stop();
+      if (app.canvas) {
+        app.canvas.style.filter = 'blur(5px)';
+      }
+    } else {
+      app.ticker.start();
+      if (app.canvas) {
+        app.canvas.style.filter = 'none';
+      }
+    }
+  });
 }
 
 // 创建玩家
@@ -502,13 +521,16 @@ const createLevelUpUI = () => {
 function gameLoop(delta: number) {
   if (gameState.isPaused || gameState.isSettingsOpen) return;
 
-  // 调试日志
-  if (Math.random() < 0.1) { // 每10帧打印一次
-    console.log('Rendering...');
-    if (player) {
-      console.log('Player position:', player.x, player.y);
-      console.log('Player visible:', player.visible);
-    }
+  // 计算FPS
+  const now = Date.now();
+  const deltaTime = now - lastFrameTime;
+  lastFrameTime = now;
+  frameCount++;
+  
+  // 每秒钟更新一次FPS显示
+  if (frameCount % 60 === 0) {
+    fps = Math.round(1000 / (deltaTime / 60));
+    updateInfoPanel();
   }
 
   // 移动玩家
@@ -543,6 +565,20 @@ function gameLoop(delta: number) {
 
   // 更新激光武器
   laserScanner.update();
+}
+
+// 更新信息面板
+function updateInfoPanel() {
+  const fpsElement = document.getElementById('fps');
+  const enemyCountElement = document.getElementById('enemy-count');
+  
+  if (fpsElement) {
+    fpsElement.textContent = `FPS: ${fps}`;
+  }
+  
+  if (enemyCountElement) {
+    enemyCountElement.textContent = `敌人: ${enemies.length}`;
+  }
 }
 
 // 移动玩家
@@ -726,7 +762,11 @@ function initTestButtons() {
 
 // 移动敌人
 function moveEnemies() {
-  enemies.forEach(enemy => {
+  // 使用for循环代替forEach，提高性能
+  for (let i = 0; i < enemies.length; i++) {
+    const enemy = enemies[i];
+    if (!enemy) continue;
+    
     // 计算敌人向玩家移动的方向
     const dx = player.x - enemy.x;
     const dy = player.y - enemy.y;
@@ -736,7 +776,7 @@ function moveEnemies() {
       enemy.x += (dx / distance) * config.enemySpeed;
       enemy.y += (dy / distance) * config.enemySpeed;
     }
-  });
+  }
 }
 
 // 自动射击
@@ -886,24 +926,18 @@ function isColliding(obj1: PIXI.Graphics, obj2: PIXI.Graphics) {
 
 // 创建设置菜单
 function createSettingsMenu() {
-  // 创建设置按钮
-  const settingsButton = document.createElement('button');
-  settingsButton.innerHTML = '⚙️';
-  settingsButton.style.cssText = `
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    width: 50px;
-    height: 50px;
-    border-radius: 50%;
-    border: none;
-    background: rgba(255, 255, 255, 0.2);
-    color: white;
-    font-size: 24px;
-    cursor: pointer;
-    z-index: 1000;
-    transition: transform 0.2s ease;
-  `;
+  // 获取设置按钮
+  const settingsButton = document.getElementById('settings-button');
+  const settingsOverlay = document.getElementById('settings-overlay');
+  const settingsPanel = document.getElementById('settings-panel');
+  const volumeSlider = document.getElementById('volume') as HTMLInputElement;
+  const restartButton = document.getElementById('restart-button');
+  const closeButton = document.getElementById('close-settings');
+  
+  if (!settingsButton || !settingsOverlay || !settingsPanel || !volumeSlider || !restartButton || !closeButton) {
+    console.error('Settings elements not found');
+    return;
+  }
   
   // 鼠标悬停效果
   settingsButton.addEventListener('mouseenter', () => {
@@ -914,135 +948,57 @@ function createSettingsMenu() {
     settingsButton.style.transform = 'scale(1)';
   });
   
-  // 创建背景遮罩
-  const overlay = document.createElement('div');
-  overlay.style.cssText = `
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.5);
-    z-index: 998;
-    display: none;
-  `;
+  // 关闭设置面板的函数
+  function closeSettingsPanel() {
+    settingsPanel.style.display = 'none';
+    settingsOverlay.style.display = 'none';
+    gameState.isSettingsOpen = false;
+    
+    // 发送GAME_PAUSE事件（取消暂停）
+    document.dispatchEvent(new CustomEvent('GAME_PAUSE', {
+      detail: { paused: false }
+    }));
+  }
   
-  // 创建设置面板
-  const settingsPanel = document.createElement('div');
-  settingsPanel.style.cssText = `
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: rgba(0, 0, 0, 0.9);
-    padding: 25px;
-    border-radius: 15px;
-    color: white;
-    font-family: Arial, sans-serif;
-    z-index: 999;
-    display: none;
-    flex-direction: column;
-    gap: 20px;
-    min-width: 300px;
-    max-width: 400px;
-    box-shadow: 0 0 30px rgba(0, 255, 0, 0.3);
-  `;
-  settingsPanel.classList.add('settings-panel');
+  // 打开设置面板的函数
+  function openSettingsPanel() {
+    settingsPanel.style.display = 'flex';
+    settingsOverlay.style.display = 'block';
+    gameState.isSettingsOpen = true;
+    
+    // 发送GAME_PAUSE事件（暂停）
+    document.dispatchEvent(new CustomEvent('GAME_PAUSE', {
+      detail: { paused: true }
+    }));
+  }
   
-  // 面板标题
-  const panelTitle = document.createElement('div');
-  panelTitle.style.cssText = `
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 10px;
-  `;
+  // 切换设置面板显示/隐藏
+  settingsButton.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = settingsPanel.style.display === 'flex';
+    
+    if (isOpen) {
+      closeSettingsPanel();
+    } else {
+      openSettingsPanel();
+    }
+  });
   
-  const titleText = document.createElement('h3');
-  titleText.innerText = '设置';
-  titleText.style.margin = '0';
-  titleText.style.fontSize = '18px';
-  titleText.style.color = '#00FF00';
+  // 点击遮罩层关闭面板
+  settingsOverlay.addEventListener('click', () => {
+    closeSettingsPanel();
+  });
   
-  // 关闭按钮
-  const closeButton = document.createElement('button');
-  closeButton.innerHTML = '✕';
-  closeButton.style.cssText = `
-    background: none;
-    border: none;
-    color: white;
-    font-size: 20px;
-    cursor: pointer;
-    padding: 5px;
-    border-radius: 50%;
-    width: 30px;
-    height: 30px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  `;
-  
+  // 关闭按钮点击事件
   closeButton.addEventListener('click', (e) => {
     e.stopPropagation();
     closeSettingsPanel();
   });
   
-  panelTitle.appendChild(titleText);
-  panelTitle.appendChild(closeButton);
-  settingsPanel.appendChild(panelTitle);
-  
-  // 游戏控制组
-  const gameControlsSection = document.createElement('div');
-  gameControlsSection.style.cssText = `
-    border-top: 1px solid rgba(255, 255, 255, 0.2);
-    padding-top: 15px;
-  `;
-  
-  const gameControlsTitle = document.createElement('h4');
-  gameControlsTitle.innerText = '游戏控制';
-  gameControlsTitle.style.margin = '0 0 15px 0';
-  gameControlsTitle.style.fontSize = '14px';
-  gameControlsTitle.style.color = '#00FF00';
-  gameControlsSection.appendChild(gameControlsTitle);
-  
-  // 暂停/恢复按钮
-  const pauseButton = document.createElement('button');
-  pauseButton.innerText = '暂停';
-  pauseButton.style.cssText = `
-    padding: 8px 16px;
-    background: rgba(255, 255, 255, 0.2);
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    color: white;
-    border-radius: 5px;
-    cursor: pointer;
-    margin-right: 10px;
-    transition: background 0.2s;
-  `;
-  
-  pauseButton.addEventListener('click', () => {
-    gameState.isPaused = !gameState.isPaused;
-    pauseButton.innerText = gameState.isPaused ? '恢复' : '暂停';
-    if (gameState.isPaused) {
-      app.ticker.stop();
-    } else {
-      app.ticker.start();
-    }
-  });
-  
-  // 重新开始按钮
-  const restartButton = document.createElement('button');
-  restartButton.innerText = '重新开始';
-  restartButton.style.cssText = `
-    padding: 8px 16px;
-    background: rgba(255, 0, 0, 0.3);
-    border: 1px solid rgba(255, 0, 0, 0.5);
-    color: white;
-    border-radius: 5px;
-    cursor: pointer;
-    transition: background 0.2s;
-  `;
-  
-  restartButton.addEventListener('click', () => {
+  // 重新开始按钮点击事件
+  restartButton.addEventListener('click', (e) => {
+    e.stopPropagation();
+    
     // 重置游戏状态
     gameState.experience = 0;
     gameState.level = 0;
@@ -1068,253 +1024,14 @@ function createSettingsMenu() {
     grass.forEach(row => row.forEach(tile => app.stage.removeChild(tile)));
     createGrass();
     
-    // 确保游戏循环运行
-    if (!app.ticker.started) {
-      app.ticker.start();
-    }
-    
-    pauseButton.innerText = '暂停';
-  });
-  
-  const controlButtons = document.createElement('div');
-  controlButtons.style.cssText = 'display: flex; gap: 10px;';
-  controlButtons.appendChild(pauseButton);
-  controlButtons.appendChild(restartButton);
-  gameControlsSection.appendChild(controlButtons);
-  settingsPanel.appendChild(gameControlsSection);
-  
-  // 视觉优化组
-  const graphicsSection = document.createElement('div');
-  graphicsSection.style.cssText = `
-    border-top: 1px solid rgba(255, 255, 255, 0.2);
-    padding-top: 15px;
-  `;
-  
-  const graphicsTitle = document.createElement('h4');
-  graphicsTitle.innerText = '视觉优化';
-  graphicsTitle.style.margin = '0 0 15px 0';
-  graphicsTitle.style.fontSize = '14px';
-  graphicsTitle.style.color = '#00FF00';
-  graphicsSection.appendChild(graphicsTitle);
-  
-  // 显示/隐藏伤害数字
-  const damageNumbersControl = document.createElement('div');
-  damageNumbersControl.style.cssText = `
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 10px;
-  `;
-  
-  const damageNumbersLabel = document.createElement('span');
-  damageNumbersLabel.innerText = '显示伤害数字';
-  damageNumbersLabel.style.fontSize = '13px';
-  
-  const damageNumbersCheckbox = document.createElement('input');
-  damageNumbersCheckbox.type = 'checkbox';
-  damageNumbersCheckbox.checked = gameState.settings.showDamageNumbers;
-  damageNumbersCheckbox.style.cursor = 'pointer';
-  
-  damageNumbersCheckbox.addEventListener('change', (e: any) => {
-    gameState.settings.showDamageNumbers = e.target.checked;
-    localStorage.setItem('showDamageNumbers', e.target.checked.toString());
-  });
-  
-  damageNumbersControl.appendChild(damageNumbersLabel);
-  damageNumbersControl.appendChild(damageNumbersCheckbox);
-  graphicsSection.appendChild(damageNumbersControl);
-  
-  // 低画质模式
-  const lowQualityControl = document.createElement('div');
-  lowQualityControl.style.cssText = `
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  `;
-  
-  const lowQualityLabel = document.createElement('span');
-  lowQualityLabel.innerText = '低画质模式';
-  lowQualityLabel.style.fontSize = '13px';
-  
-  const lowQualityCheckbox = document.createElement('input');
-  lowQualityCheckbox.type = 'checkbox';
-  lowQualityCheckbox.checked = gameState.settings.lowQualityMode;
-  lowQualityCheckbox.style.cursor = 'pointer';
-  
-  lowQualityCheckbox.addEventListener('change', (e: any) => {
-    gameState.settings.lowQualityMode = e.target.checked;
-    localStorage.setItem('lowQualityMode', e.target.checked.toString());
-  });
-  
-  lowQualityControl.appendChild(lowQualityLabel);
-  lowQualityControl.appendChild(lowQualityCheckbox);
-  graphicsSection.appendChild(lowQualityControl);
-  settingsPanel.appendChild(graphicsSection);
-  
-  // 高级声音设置
-  const audioSection = document.createElement('div');
-  audioSection.style.cssText = `
-    border-top: 1px solid rgba(255, 255, 255, 0.2);
-    padding-top: 15px;
-  `;
-  
-  const audioTitle = document.createElement('h4');
-  audioTitle.innerText = '声音设置';
-  audioTitle.style.margin = '0 0 15px 0';
-  audioTitle.style.fontSize = '14px';
-  audioTitle.style.color = '#00FF00';
-  audioSection.appendChild(audioTitle);
-  
-  // 一键静音按钮
-  const muteButton = document.createElement('button');
-  muteButton.innerHTML = soundManager.isMuted() ? '🔇' : '🔊';
-  muteButton.style.cssText = `
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    border: none;
-    background: rgba(255, 255, 255, 0.2);
-    color: white;
-    font-size: 20px;
-    cursor: pointer;
-    margin-bottom: 15px;
-  `;
-  
-  muteButton.addEventListener('click', () => {
-    const isMuted = soundManager.toggleMute();
-    muteButton.innerHTML = isMuted ? '🔇' : '🔊';
-  });
-  
-  audioSection.appendChild(muteButton);
-  
-  // BGM 音量控制
-  const bgmControl = document.createElement('div');
-  bgmControl.style.cssText = `
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    margin-bottom: 10px;
-  `;
-  
-  const bgmLabel = document.createElement('div');
-  bgmLabel.style.cssText = `
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  `;
-  
-  const bgmText = document.createElement('span');
-  bgmText.innerText = '背景音乐';
-  bgmText.style.fontSize = '13px';
-  
-  const bgmValue = document.createElement('span');
-  bgmValue.innerText = `${Math.round(soundManager.getBgmVolume() * 100)}%`;
-  bgmValue.style.fontSize = '12px';
-  bgmValue.style.width = '40px';
-  
-  bgmLabel.appendChild(bgmText);
-  bgmLabel.appendChild(bgmValue);
-  
-  const bgmSlider = document.createElement('input');
-  bgmSlider.type = 'range';
-  bgmSlider.min = '0';
-  bgmSlider.max = '100';
-  bgmSlider.value = soundManager.getBgmVolume() * 100;
-  bgmSlider.style.cursor = 'pointer';
-  
-  bgmSlider.oninput = (e: any) => {
-    const val = e.target.value;
-    bgmValue.innerText = `${val}%`;
-    soundManager.setBgmVolume(val / 100);
-  };
-  
-  bgmControl.appendChild(bgmLabel);
-  bgmControl.appendChild(bgmSlider);
-  audioSection.appendChild(bgmControl);
-  
-  // SFX 音量控制
-  const sfxControl = document.createElement('div');
-  sfxControl.style.cssText = `
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-  `;
-  
-  const sfxLabel = document.createElement('div');
-  sfxLabel.style.cssText = `
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  `;
-  
-  const sfxText = document.createElement('span');
-  sfxText.innerText = '音效';
-  sfxText.style.fontSize = '13px';
-  
-  const sfxValue = document.createElement('span');
-  sfxValue.innerText = `${Math.round(soundManager.getSfxVolume() * 100)}%`;
-  sfxValue.style.fontSize = '12px';
-  sfxValue.style.width = '40px';
-  
-  sfxLabel.appendChild(sfxText);
-  sfxLabel.appendChild(sfxValue);
-  
-  const sfxSlider = document.createElement('input');
-  sfxSlider.type = 'range';
-  sfxSlider.min = '0';
-  sfxSlider.max = '100';
-  sfxSlider.value = soundManager.getSfxVolume() * 100;
-  sfxSlider.style.cursor = 'pointer';
-  
-  sfxSlider.oninput = (e: any) => {
-    const val = e.target.value;
-    sfxValue.innerText = `${val}%`;
-    soundManager.setSfxVolume(val / 100);
-  };
-  
-  sfxControl.appendChild(sfxLabel);
-  sfxControl.appendChild(sfxSlider);
-  audioSection.appendChild(sfxControl);
-  settingsPanel.appendChild(audioSection);
-  
-  // 添加到页面
-  document.body.appendChild(settingsButton);
-  document.body.appendChild(overlay);
-  document.body.appendChild(settingsPanel);
-  
-  // 关闭设置面板的函数
-  function closeSettingsPanel() {
-    settingsPanel.style.display = 'none';
-    overlay.style.display = 'none';
-    gameState.isSettingsOpen = false;
-    // 移除模糊效果
-    if (app.canvas) {
-      app.canvas.style.filter = 'none';
-    }
-  }
-  
-  // 切换设置面板显示/隐藏
-  settingsButton.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const isOpen = settingsPanel.style.display === 'flex';
-    
-    if (isOpen) {
-      closeSettingsPanel();
-    } else {
-      // 打开设置面板
-      settingsPanel.style.display = 'flex';
-      overlay.style.display = 'block';
-      gameState.isSettingsOpen = true;
-      // 添加模糊效果
-      if (app.canvas) {
-        app.canvas.style.filter = 'blur(5px)';
-      }
-    }
-  });
-  
-  // 点击遮罩层关闭面板
-  overlay.addEventListener('click', () => {
+    // 关闭设置面板
     closeSettingsPanel();
+  });
+  
+  // 音量滑块事件
+  volumeSlider.addEventListener('input', (e) => {
+    const value = (e.target as HTMLInputElement).value;
+    Howler.volume(parseInt(value) / 100);
   });
   
   // 阻止设置面板的事件穿透
@@ -1326,24 +1043,6 @@ function createSettingsMenu() {
   settingsPanel.addEventListener('mousedown', preventEventPropagation);
   settingsPanel.addEventListener('touchstart', preventEventPropagation);
   settingsPanel.addEventListener('click', preventEventPropagation);
-  
-  // 从 localStorage 加载设置
-  const loadSettings = () => {
-    const savedShowDamageNumbers = localStorage.getItem('showDamageNumbers');
-    if (savedShowDamageNumbers) {
-      gameState.settings.showDamageNumbers = savedShowDamageNumbers === 'true';
-      damageNumbersCheckbox.checked = gameState.settings.showDamageNumbers;
-    }
-    
-    const savedLowQualityMode = localStorage.getItem('lowQualityMode');
-    if (savedLowQualityMode) {
-      gameState.settings.lowQualityMode = savedLowQualityMode === 'true';
-      lowQualityCheckbox.checked = gameState.settings.lowQualityMode;
-    }
-  };
-  
-  // 加载设置
-  loadSettings();
 }
 
 // 启动游戏

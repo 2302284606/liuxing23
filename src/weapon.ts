@@ -10,10 +10,9 @@ const laserConfig = {
   glowAlpha: 0.5, // 发光层透明度
   jitter: 2, // 激光抖动幅度
   playerSpeedReduction: 0.5, // 激光激活时移动速度降低比例
-  energyConsumption: 5, // 每秒能量消耗
+  energyConsumption: 20, // 每秒能量消耗
   energyRecovery: 10, // 每秒能量恢复
   maxEnergy: 100, // 最大能量
-  cooldownTime: 3000, // 过热冷却时间（毫秒）
   damageInterval: 100, // 伤害判定间隔（毫秒）
   gridSize: 100, // 网格大小
 };
@@ -29,6 +28,114 @@ interface Enemy extends PIXI.Graphics {
   lastDamageTime?: number;
 }
 
+// 激光能量管理器类
+export class LaserManager {
+  private energy: number = laserConfig.maxEnergy;
+  private isOverheated: boolean = false;
+  private lastEnergyUpdate: number = Date.now();
+  private energyBarElement: HTMLElement | null;
+  private energyFillElement: HTMLElement | null;
+
+  constructor() {
+    // 获取能量条元素
+    this.energyBarElement = document.querySelector('.energy-bar');
+    this.energyFillElement = document.querySelector('.energy-fill');
+    this.updateEnergyBar();
+  }
+
+  // 更新能量
+  public update() {
+    const now = Date.now();
+    const deltaTime = (now - this.lastEnergyUpdate) / 1000; // 转换为秒
+    this.lastEnergyUpdate = now;
+
+    if (this.isOverheated) {
+      // 检查是否恢复到满能量
+      if (this.energy >= laserConfig.maxEnergy) {
+        this.isOverheated = false;
+      } else {
+        // 恢复能量
+        this.energy += laserConfig.energyRecovery * deltaTime;
+        if (this.energy > laserConfig.maxEnergy) {
+          this.energy = laserConfig.maxEnergy;
+        }
+      }
+    }
+
+    this.updateEnergyBar();
+  }
+
+  // 激活激光（消耗能量）
+  public activate() {
+    if (this.isOverheated || this.energy <= 0) {
+      return false;
+    }
+
+    const now = Date.now();
+    const deltaTime = (now - this.lastEnergyUpdate) / 1000;
+    this.lastEnergyUpdate = now;
+
+    // 消耗能量
+    this.energy -= laserConfig.energyConsumption * deltaTime;
+    if (this.energy <= 0) {
+      this.energy = 0;
+      this.isOverheated = true;
+    }
+
+    this.updateEnergyBar();
+    return true;
+  }
+
+  // 恢复能量（不激活激光时）
+  public recover() {
+    if (this.isOverheated) {
+      return;
+    }
+
+    const now = Date.now();
+    const deltaTime = (now - this.lastEnergyUpdate) / 1000;
+    this.lastEnergyUpdate = now;
+
+    // 恢复能量
+    this.energy += laserConfig.energyRecovery * deltaTime;
+    if (this.energy > laserConfig.maxEnergy) {
+      this.energy = laserConfig.maxEnergy;
+    }
+
+    this.updateEnergyBar();
+  }
+
+  // 更新能量条UI
+  private updateEnergyBar() {
+    if (this.energyFillElement) {
+      const percentage = (this.energy / laserConfig.maxEnergy) * 100;
+      this.energyFillElement.style.width = `${percentage}%`;
+      
+      // 处理过热状态
+      if (this.isOverheated) {
+        this.energyFillElement.classList.add('overheat');
+      } else {
+        this.energyFillElement.classList.remove('overheat');
+      }
+    }
+  }
+
+  // 获取能量值
+  public getEnergy(): number {
+    return this.energy;
+  }
+
+  // 获取是否过热
+  public getIsOverheated(): boolean {
+    return this.isOverheated;
+  }
+
+  // 获取玩家速度修正值
+  public getPlayerSpeedModifier(): number {
+    return 0.5; // 激光激活时移动速度降低
+  }
+}
+
 // 激光武器类
 export class LaserScanner {
   private app: PIXI.Application;
@@ -40,11 +147,7 @@ export class LaserScanner {
   private laserGraphics: PIXI.Graphics;
   private glowGraphics: PIXI.Graphics;
   private hitEffects: PIXI.Graphics[] = [];
-  private energy: number = laserConfig.maxEnergy;
-  private isOverheated: boolean = false;
-  private lastEnergyUpdate: number = Date.now();
-  private lastCooldownTime: number = 0;
-  private energyBar: PIXI.Graphics;
+  private laserManager: LaserManager;
   private grid: Grid = {};
 
   constructor(app: PIXI.Application, player: PIXI.Graphics, enemies: PIXI.Graphics[], expBeans: PIXI.Graphics[]) {
@@ -53,6 +156,7 @@ export class LaserScanner {
     this.enemies = enemies;
     this.expBeans = expBeans;
     this.targetPosition = { x: app.screen.width / 2, y: app.screen.height / 2 };
+    this.laserManager = new LaserManager();
 
     // 创建激光图形
     this.laserGraphics = new PIXI.Graphics();
@@ -64,41 +168,8 @@ export class LaserScanner {
     this.glowGraphics.zIndex = 19;
     app.stage.addChild(this.glowGraphics);
 
-    // 创建能量条
-    this.createEnergyBar();
-
     // 初始化鼠标/触摸事件
     this.initInput();
-  }
-
-  // 创建能量条
-  private createEnergyBar() {
-    this.energyBar = new PIXI.Graphics();
-    this.energyBar.zIndex = 30;
-    this.app.stage.addChild(this.energyBar);
-    this.updateEnergyBar();
-  }
-
-  // 更新能量条
-  private updateEnergyBar() {
-    this.energyBar.clear();
-    
-    const width = 200;
-    const height = 10;
-    const x = (this.app.screen.width - width) / 2;
-    const y = 30;
-    
-    // 背景
-    this.energyBar.beginFill(0x333333);
-    this.energyBar.drawRect(x, y, width, height);
-    this.energyBar.endFill();
-    
-    // 能量条
-    const energyWidth = (this.energy / laserConfig.maxEnergy) * width;
-    const color = this.isOverheated ? 0xFF0000 : 0x00FF00;
-    this.energyBar.beginFill(color);
-    this.energyBar.drawRect(x, y, energyWidth, height);
-    this.energyBar.endFill();
   }
 
   // 初始化输入事件
@@ -165,11 +236,15 @@ export class LaserScanner {
 
   // 更新激光
   public update() {
-    // 更新能量
-    this.updateEnergy();
+    // 更新激光能量
+    if (this.isActive) {
+      this.laserManager.activate();
+    } else {
+      this.laserManager.recover();
+    }
 
     // 检查是否过热
-    if (this.isOverheated) {
+    if (this.laserManager.getIsOverheated()) {
       this.clearLaser();
       return;
     }
@@ -190,43 +265,6 @@ export class LaserScanner {
 
     // 更新击中效果
     this.updateHitEffects();
-
-    // 更新能量条
-    this.updateEnergyBar();
-  }
-
-  // 更新能量
-  private updateEnergy() {
-    const now = Date.now();
-    const deltaTime = (now - this.lastEnergyUpdate) / 1000; // 转换为秒
-    this.lastEnergyUpdate = now;
-
-    if (this.isOverheated) {
-      // 冷却时间
-      if (now - this.lastCooldownTime >= laserConfig.cooldownTime) {
-        this.isOverheated = false;
-        this.energy = laserConfig.maxEnergy;
-      }
-      return;
-    }
-
-    if (this.isActive) {
-      // 消耗能量
-      this.energy -= laserConfig.energyConsumption * deltaTime;
-      if (this.energy <= 0) {
-        this.energy = 0;
-        this.isOverheated = true;
-        this.isActive = false;
-        this.lastCooldownTime = now;
-        this.clearLaser();
-      }
-    } else {
-      // 恢复能量
-      this.energy += laserConfig.energyRecovery * deltaTime;
-      if (this.energy > laserConfig.maxEnergy) {
-        this.energy = laserConfig.maxEnergy;
-      }
-    }
   }
 
   // 构建网格
@@ -415,33 +453,6 @@ export class LaserScanner {
     }
   }
 
-  // 线段与圆的碰撞检测
-  private lineCircleIntersection(x1: number, y1: number, x2: number, y2: number, cx: number, cy: number, radius: number): boolean {
-    // 计算线段的向量
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-
-    // 计算线段的长度
-    const length = Math.sqrt(dx * dx + dy * dy);
-
-    // 归一化向量
-    const ux = dx / length;
-    const uy = dy / length;
-
-    // 计算线段上离圆心最近的点
-    const t = Math.max(0, Math.min(length, (cx - x1) * ux + (cy - y1) * uy));
-
-    // 计算最近点的坐标
-    const closestX = x1 + ux * t;
-    const closestY = y1 + uy * t;
-
-    // 计算最近点到圆心的距离
-    const distance = Math.sqrt((closestX - cx) ** 2 + (closestY - cy) ** 2);
-
-    // 检查距离是否小于半径
-    return distance <= radius;
-  }
-
   // 创建击中效果
   private createHitEffect(x: number, y: number) {
     const effect = new PIXI.Graphics();
@@ -491,5 +502,10 @@ export class LaserScanner {
   // 设置激光伤害值
   public setDamage(damage: number) {
     laserConfig.damage = damage;
+  }
+
+  // 获取激光管理器
+  public getLaserManager(): LaserManager {
+    return this.laserManager;
   }
 }
