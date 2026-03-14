@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>割草机游戏</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        background-color: #2196F3;
+        overflow: hidden;
+      }
+      
+      #game-container {
+        position: relative;
+      }
+      
+      /* 动态摇杆不需要固定容器样式 */
+    </style>
+  </head>
+  <body>
+    <div id="game-container">
+      <div id="joystick"></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
