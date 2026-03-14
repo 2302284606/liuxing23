@@ -167,8 +167,9 @@ export class LaserScanner {
 
         // 生成经验豆
         const expBean = new PIXI.Graphics();
-        expBean.fill(0xFFFF00);
-        expBean.circle(0, 0, 10);
+        expBean.beginFill(0xFFFF00);
+        expBean.drawCircle(0, 0, 10);
+        expBean.endFill();
         expBean.x = enemyCenterX;
         expBean.y = enemyCenterY;
         this.app.stage.addChild(expBean);

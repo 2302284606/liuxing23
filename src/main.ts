@@ -2,6 +2,7 @@ import * as PIXI from 'pixi.js';
 import nipplejs from 'nipplejs';
 import { Howl, Howler } from 'howler';
 import { LaserScanner } from './weapon';
+import { soundManager } from './soundManager';
 
 // 游戏配置
 const config = {
@@ -30,6 +31,7 @@ const gameState = {
   swordSpeed: 0.05,
   swordRadius: 80,
   isPaused: false,
+  isSettingsOpen: false,
 };
 
 // 游戏对象
@@ -53,33 +55,7 @@ Howler.html5 = false;
 // 显式设置音量
 Howler.volume(1.0);
 
-// 音效配置
-const sounds = {
-  mow: new Howl({
-    src: [TING_BASE64],
-    volume: 1.0,
-    html5: false, // 这种小音效用 Web Audio API 更快
-    onloaderror: (id, error) => {
-      console.error('Mow sound load error:', error);
-    },
-    onplayerror: function() {
-      console.error("播放失败，尝试重新解锁音频");
-      Howler.unload(); // 强制重载
-    }
-  }),
-  levelUp: new Howl({
-    src: [TING_BASE64],
-    volume: 1.0,
-    html5: false, // 这种小音效用 Web Audio API 更快
-    onloaderror: (id, error) => {
-      console.error('Level up sound load error:', error);
-    },
-    onplayerror: function() {
-      console.error("播放失败，尝试重新解锁音频");
-      Howler.unload(); // 强制重载
-    }
-  }),
-};
+
 
 // 飞剑类
 class Sword {
@@ -98,8 +74,9 @@ class Sword {
   draw() {
     this.graphics.clear();
     // 绘制青色长方形，带有透明度
-    this.graphics.rect(-20, -5, 40, 10);
-    this.graphics.fill(config.swordColor, 0.8);
+    this.graphics.beginFill(config.swordColor, 0.8);
+    this.graphics.drawRect(-20, -5, 40, 10);
+    this.graphics.endFill();
   }
 
   update() {
@@ -124,15 +101,14 @@ class Sword {
         enemies.splice(index, 1);
 
         // 播放音效
-        const randomRate = 0.9 + Math.random() * 0.2;
-        sounds.mow.rate(randomRate);
-        sounds.mow.play();
+        soundManager.playSound('mow');
         console.log('Sound Playing! - Mow');
 
         // 生成经验豆
         const expBean = new PIXI.Graphics();
-        expBean.rect(-5, -5, 10, 10);
-        expBean.fill(config.expColor);
+        expBean.beginFill(config.expColor);
+        expBean.drawRect(-5, -5, 10, 10);
+        expBean.endFill();
         expBean.x = enemy.x;
         expBean.y = enemy.y;
         app.stage.addChild(expBean);
@@ -194,12 +170,12 @@ const createStartButton = () => {
       Howler.ctx.resume().then(() => {
         console.log('Audio Context Resumed via Button!');
         // 播放测试音效
-        sounds.mow.play();
+        soundManager.playSound('mow');
         console.log('Test sound played!');
       });
     } else {
       // 即使音频已激活，也播放测试音效
-      sounds.mow.play();
+      soundManager.playSound('mow');
       console.log('Test sound played!');
     }
 
@@ -308,13 +284,17 @@ async function initPixi() {
   
   // 初始化测试按钮
   initTestButtons();
+  
+  // 创建设置菜单
+  createSettingsMenu();
 }
 
 // 创建玩家
 function createPlayer() {
   player = new PIXI.Graphics();
-  player.rect(-25, -25, 50, 50); // 定义形状
-  player.fill(config.playerColor); // v8 必须在定义形状后调用 fill()
+  player.beginFill(config.playerColor);
+  player.drawRect(-25, -25, 50, 50); // 定义形状
+  player.endFill();
   player.x = app.screen.width / 2;
   player.y = app.screen.height / 2;
   app.stage.sortableChildren = true;
@@ -334,8 +314,9 @@ function createGrass() {
     grass[i] = [];
     for (let j = 0; j < cols; j++) {
       const grassTile = new PIXI.Graphics();
-      grassTile.fill(config.grassColor);
-      grassTile.rect(j * config.grassSize, i * config.grassSize, config.grassSize, config.grassSize);
+      grassTile.beginFill(config.grassColor);
+      grassTile.drawRect(j * config.grassSize, i * config.grassSize, config.grassSize, config.grassSize);
+      grassTile.endFill();
       app.stage.addChildAt(grassTile, 0); // 放在最底层
       grass[i][j] = grassTile;
     }
@@ -361,6 +342,9 @@ function createJoystick() {
 
   // 手指按下时显示摇杆并解锁音频
   joystick.on('start', () => {
+    // 如果设置面板打开，不处理
+    if (gameState.isSettingsOpen) return;
+    
     // 解锁音频上下文
     if (Howler.ctx && Howler.ctx.state === 'suspended') {
       Howler.ctx.resume();
@@ -375,6 +359,9 @@ function createJoystick() {
 
   // 手指抬起时隐藏摇杆
   joystick.on('end', () => {
+    // 如果设置面板打开，不处理
+    if (gameState.isSettingsOpen) return;
+    
     const joystickElement = document.querySelector('.nipplejs-container');
     if (joystickElement) {
       joystickElement.style.display = 'none';
@@ -384,6 +371,9 @@ function createJoystick() {
   });
 
   joystick.on('move', (_: any, data: any) => {
+    // 如果设置面板打开，不处理
+    if (gameState.isSettingsOpen) return;
+    
     moveDirection.x = data.vector.x;
     moveDirection.y = data.vector.y;
   });
@@ -447,7 +437,7 @@ const createLevelUpUI = () => {
       // 应用效果
       effect();
       // 播放升级音效
-      sounds.levelUp.play();
+      soundManager.playSound('levelUp');
       console.log('Sound Playing! - Level Up');
       // 移除遮罩
       document.body.removeChild(mask);
@@ -502,7 +492,7 @@ const createLevelUpUI = () => {
 
 // 游戏主循环
 function gameLoop(delta: number) {
-  if (gameState.isPaused) return;
+  if (gameState.isPaused || gameState.isSettingsOpen) return;
 
   // 调试日志
   if (Math.random() < 0.1) { // 每10帧打印一次
@@ -575,8 +565,9 @@ function mowGrass() {
           player.getBounds().y < grassBounds.y + grassBounds.height &&
           player.getBounds().y + player.getBounds().height > grassBounds.y) {
         grassTile.clear();
-        grassTile.fill(config.mowedColor);
-        grassTile.rect(j * config.grassSize, i * config.grassSize, config.grassSize, config.grassSize);
+        grassTile.beginFill(config.mowedColor);
+        grassTile.drawRect(j * config.grassSize, i * config.grassSize, config.grassSize, config.grassSize);
+        grassTile.endFill();
       }
     }
   }
@@ -589,9 +580,10 @@ function spawnEnemies() {
     lastSpawnTime = now;
 
     const enemy = new PIXI.Graphics();
-    enemy.rect(-20, -20, 40, 40);
-    enemy.fill(config.enemyColor);
-    enemy.zIndex = 5;
+enemy.beginFill(config.enemyColor);
+enemy.drawRect(-20, -20, 40, 40);
+enemy.endFill();
+enemy.zIndex = 5;
 
     // 从屏幕外随机位置生成
     const side = Math.floor(Math.random() * 4); // 0: 上, 1: 右, 2: 下, 3: 左
@@ -640,9 +632,10 @@ function spawnTestEnemies() {
   
   for (let i = 0; i < count; i++) {
     const enemy = new PIXI.Graphics();
-    enemy.rect(-20, -20, 40, 40);
-    enemy.fill(config.enemyColor);
-    enemy.zIndex = 5;
+enemy.beginFill(config.enemyColor);
+enemy.drawRect(-20, -20, 40, 40);
+enemy.endFill();
+enemy.zIndex = 5;
     enemy.x = startX + i * spacing;
     enemy.y = startY;
     app.stage.addChild(enemy);
@@ -663,9 +656,10 @@ function spawnManyEnemies() {
   
   for (let i = 0; i < count; i++) {
     const enemy = new PIXI.Graphics();
-    enemy.rect(-20, -20, 40, 40);
-    enemy.fill(config.enemyColor);
-    enemy.zIndex = 5;
+enemy.beginFill(config.enemyColor);
+enemy.drawRect(-20, -20, 40, 40);
+enemy.endFill();
+enemy.zIndex = 5;
     enemy.x = Math.random() * app.screen.width;
     enemy.y = Math.random() * app.screen.height;
     app.stage.addChild(enemy);
@@ -760,8 +754,9 @@ function autoShoot() {
 
     // 向最近的敌人射击
     const bullet = new PIXI.Graphics();
-    bullet.fill(config.bulletColor);
-    bullet.circle(0, 0, 5);
+    bullet.beginFill(config.bulletColor);
+    bullet.drawCircle(0, 0, 5);
+    bullet.endFill();
     bullet.x = player.x;
     bullet.y = player.y;
 
@@ -819,16 +814,15 @@ function checkCollisions() {
         bullets.splice(bulletIndex, 1);
         enemies.splice(enemyIndex, 1);
 
-        // 播放割草音效，设置随机 rate
-        const randomRate = 0.9 + Math.random() * 0.2; // 0.9 到 1.1 之间
-        sounds.mow.rate(randomRate);
-        sounds.mow.play();
+        // 播放割草音效
+        soundManager.playSound('mow');
         console.log('Sound Playing! - Mow');
 
         // 生成经验豆
         const expBean = new PIXI.Graphics();
-        expBean.fill(config.expColor);
-        expBean.circle(0, 0, 10);
+        expBean.beginFill(config.expColor);
+        expBean.drawCircle(0, 0, 10);
+        expBean.endFill();
         expBean.x = enemy.x;
         expBean.y = enemy.y;
         app.stage.addChild(expBean);
@@ -849,7 +843,7 @@ function checkCollisions() {
       console.log(`经验值: ${gameState.experience}`);
 
       // 播放升级音效
-      sounds.levelUp.play();
+      soundManager.playSound('levelUp');
       console.log('Sound Playing! - Level Up');
     }
   });
@@ -880,6 +874,151 @@ function isColliding(obj1: PIXI.Graphics, obj2: PIXI.Graphics) {
          bounds1.x + bounds1.width > bounds2.x &&
          bounds1.y < bounds2.y + bounds2.height &&
          bounds1.y + bounds1.height > bounds2.y;
+}
+
+// 创建设置菜单
+function createSettingsMenu() {
+  // 创建设置按钮
+  const settingsButton = document.createElement('button');
+  settingsButton.innerHTML = '⚙️';
+  settingsButton.style.cssText = `
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    font-size: 24px;
+    cursor: pointer;
+    z-index: 1000;
+    transition: transform 0.2s ease;
+  `;
+  
+  // 鼠标悬停效果
+  settingsButton.addEventListener('mouseenter', () => {
+    settingsButton.style.transform = 'scale(1.1)';
+  });
+  
+  settingsButton.addEventListener('mouseleave', () => {
+    settingsButton.style.transform = 'scale(1)';
+  });
+  
+  // 创建设置面板
+  const settingsPanel = document.createElement('div');
+  settingsPanel.style.cssText = `
+    position: fixed;
+    bottom: 80px;
+    right: 20px;
+    background: rgba(0, 0, 0, 0.8);
+    padding: 20px;
+    border-radius: 10px;
+    color: white;
+    font-family: Arial, sans-serif;
+    z-index: 999;
+    display: none;
+    flex-direction: column;
+    gap: 15px;
+    min-width: 200px;
+  `;
+  settingsPanel.classList.add('settings-panel');
+  
+  // 音量控制
+  const volumeContainer = document.createElement('div');
+  volumeContainer.style.cssText = `
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  `;
+  
+  const volumeLabel = document.createElement('span');
+  volumeLabel.innerText = "音量";
+  volumeLabel.style.fontSize = '14px';
+  
+  const volumeControl = document.createElement('div');
+  volumeControl.style.cssText = `
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  `;
+  
+  const slider = document.createElement('input');
+  slider.type = 'range';
+  slider.min = '0';
+  slider.max = '100';
+  slider.value = soundManager.getVolume() * 100;
+  slider.style.cursor = 'pointer';
+  slider.style.flex = '1';
+  
+  const valueDisplay = document.createElement('span');
+  valueDisplay.innerText = `${slider.value}%`;
+  valueDisplay.style.width = '40px';
+  valueDisplay.style.fontSize = '12px';
+  
+  // 绑定事件
+  slider.oninput = (e: any) => {
+    const val = e.target.value;
+    valueDisplay.innerText = `${val}%`;
+    soundManager.setVolume(val / 100);
+  };
+  
+  volumeControl.appendChild(slider);
+  volumeControl.appendChild(valueDisplay);
+  volumeContainer.appendChild(volumeLabel);
+  volumeContainer.appendChild(volumeControl);
+  settingsPanel.appendChild(volumeContainer);
+  
+  // 添加到页面
+  document.body.appendChild(settingsButton);
+  document.body.appendChild(settingsPanel);
+  
+  // 切换设置面板显示/隐藏
+  settingsButton.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = settingsPanel.style.display === 'flex';
+    
+    if (isOpen) {
+      // 关闭设置面板
+      settingsPanel.style.display = 'none';
+      gameState.isSettingsOpen = false;
+      // 移除模糊效果
+      if (app.canvas) {
+        app.canvas.style.filter = 'none';
+      }
+    } else {
+      // 打开设置面板
+      settingsPanel.style.display = 'flex';
+      gameState.isSettingsOpen = true;
+      // 添加模糊效果
+      if (app.canvas) {
+        app.canvas.style.filter = 'blur(5px)';
+      }
+    }
+  });
+  
+  // 点击面板外的区域关闭面板
+  document.addEventListener('click', (e) => {
+    if (!settingsPanel.contains(e.target as Node) && e.target !== settingsButton && gameState.isSettingsOpen) {
+      settingsPanel.style.display = 'none';
+      gameState.isSettingsOpen = false;
+      // 移除模糊效果
+      if (app.canvas) {
+        app.canvas.style.filter = 'none';
+      }
+    }
+  });
+  
+  // 阻止设置面板的事件穿透
+  const preventEventPropagation = (e: Event) => {
+    e.stopPropagation();
+  };
+  
+  settingsPanel.addEventListener('pointerdown', preventEventPropagation);
+  settingsPanel.addEventListener('mousedown', preventEventPropagation);
+  settingsPanel.addEventListener('touchstart', preventEventPropagation);
+  settingsPanel.addEventListener('click', preventEventPropagation);
 }
 
 // 启动游戏
