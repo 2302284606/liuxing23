@@ -229,13 +229,46 @@ const createStatusDisplay = () => {
   statusDiv.id = 'audio-status';
   document.body.appendChild(statusDiv);
   
+  // 创建静音按钮
+  const muteButton = document.createElement('button');
+  muteButton.textContent = '🔊';
+  muteButton.style.position = 'fixed';
+  muteButton.style.top = '10px';
+  muteButton.style.right = '10px';
+  muteButton.style.width = '40px';
+  muteButton.style.height = '40px';
+  muteButton.style.borderRadius = '50%';
+  muteButton.style.border = 'none';
+  muteButton.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
+  muteButton.style.color = 'white';
+  muteButton.style.fontSize = '20px';
+  muteButton.style.cursor = 'pointer';
+  muteButton.style.zIndex = '1000';
+  muteButton.style.display = 'flex';
+  muteButton.style.alignItems = 'center';
+  muteButton.style.justifyContent = 'center';
+  document.body.appendChild(muteButton);
+  
+  // 静音状态
+  let isMuted = false;
+  
+  // 静音按钮点击事件
+  muteButton.addEventListener('click', () => {
+    isMuted = !isMuted;
+    Howler.volume(isMuted ? 0 : 1.0);
+    muteButton.textContent = isMuted ? '🔇' : '🔊';
+    console.log('Mute status:', isMuted);
+  });
+  
   // 更新状态
   const updateStatus = () => {
     const howlerState = Howler.ctx ? Howler.ctx.state : 'No Howler Context';
     const audioContextState = typeof AudioContext !== 'undefined' ? new AudioContext().state : 'No Audio Context';
+    const muteStatus = isMuted ? 'Muted' : 'Unmuted';
     statusDiv.innerHTML = `
       Howler State: ${howlerState}<br>
       Audio Context State: ${audioContextState}<br>
+      Mute: ${muteStatus}<br>
       Experience: ${gameState.experience}<br>
       Level: ${gameState.level}<br>
       Swords: ${gameState.swordCount}
