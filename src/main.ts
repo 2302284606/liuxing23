@@ -1,6 +1,7 @@
 import * as PIXI from 'pixi.js';
 import nipplejs from 'nipplejs';
 import { Howl, Howler } from 'howler';
+import { LaserScanner } from './weapon';
 
 // 游戏配置
 const config = {
@@ -41,6 +42,7 @@ let expBeans: PIXI.Graphics[] = [];
 let moveDirection = { x: 0, y: 0 };
 let lastSpawnTime = 0;
 let lastShootTime = 0;
+let laserScanner: LaserScanner;
 
 // 这是一个极短的 Base64 叮声，确保 100% 能响
 const TING_BASE64 = "data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YTdvT18AZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAABfX19f";
@@ -264,6 +266,9 @@ async function initPixi() {
 
   // 初始化状态显示
   createStatusDisplay();
+
+  // 初始化激光武器
+  laserScanner = new LaserScanner(app, player, enemies, expBeans);
 
   // 游戏主循环
   app.ticker.add(gameLoop);
@@ -501,12 +506,17 @@ function gameLoop(delta: number) {
 
   // 检查升级
   checkLevelUp();
+
+  // 更新激光武器
+  laserScanner.update();
 }
 
 // 移动玩家
 function movePlayer() {
-  player.x += moveDirection.x * config.playerSpeed;
-  player.y += moveDirection.y * config.playerSpeed;
+  // 考虑激光激活时的速度降低
+  const speedModifier = laserScanner.getPlayerSpeedModifier();
+  player.x += moveDirection.x * config.playerSpeed * speedModifier;
+  player.y += moveDirection.y * config.playerSpeed * speedModifier;
 
   // 边界检查
   player.x = Math.max(25, Math.min(app.screen.width - 25, player.x));
