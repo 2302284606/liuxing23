@@ -70,8 +70,7 @@ def check_git_status():
 
 def get_default_commit_message():
     """生成默认的提交信息"""
-    now = datetime.now()
-    return f"Update: {now.strftime('%Y-%m-%d %H:%M')}"
+    return "Feature: Added Laser Beam system with high damage"
 
 def push():
     """快速上传代码"""

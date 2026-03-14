@@ -32,6 +32,14 @@ const gameState = {
   swordRadius: 80,
   isPaused: false,
   isSettingsOpen: false,
+  // 设置状态
+  settings: {
+    showDamageNumbers: true,
+    lowQualityMode: false,
+    mute: false,
+    bgmVolume: 1.0,
+    sfxVolume: 1.0
+  }
 };
 
 // 游戏对象
@@ -906,73 +914,384 @@ function createSettingsMenu() {
     settingsButton.style.transform = 'scale(1)';
   });
   
+  // 创建背景遮罩
+  const overlay = document.createElement('div');
+  overlay.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 998;
+    display: none;
+  `;
+  
   // 创建设置面板
   const settingsPanel = document.createElement('div');
   settingsPanel.style.cssText = `
     position: fixed;
-    bottom: 80px;
-    right: 20px;
-    background: rgba(0, 0, 0, 0.8);
-    padding: 20px;
-    border-radius: 10px;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.9);
+    padding: 25px;
+    border-radius: 15px;
     color: white;
     font-family: Arial, sans-serif;
     z-index: 999;
     display: none;
     flex-direction: column;
-    gap: 15px;
-    min-width: 200px;
+    gap: 20px;
+    min-width: 300px;
+    max-width: 400px;
+    box-shadow: 0 0 30px rgba(0, 255, 0, 0.3);
   `;
   settingsPanel.classList.add('settings-panel');
   
-  // 音量控制
-  const volumeContainer = document.createElement('div');
-  volumeContainer.style.cssText = `
+  // 面板标题
+  const panelTitle = document.createElement('div');
+  panelTitle.style.cssText = `
     display: flex;
-    flex-direction: column;
-    gap: 10px;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
   `;
   
-  const volumeLabel = document.createElement('span');
-  volumeLabel.innerText = "音量";
-  volumeLabel.style.fontSize = '14px';
+  const titleText = document.createElement('h3');
+  titleText.innerText = '设置';
+  titleText.style.margin = '0';
+  titleText.style.fontSize = '18px';
+  titleText.style.color = '#00FF00';
   
-  const volumeControl = document.createElement('div');
-  volumeControl.style.cssText = `
+  // 关闭按钮
+  const closeButton = document.createElement('button');
+  closeButton.innerHTML = '✕';
+  closeButton.style.cssText = `
+    background: none;
+    border: none;
+    color: white;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 5px;
+    border-radius: 50%;
+    width: 30px;
+    height: 30px;
     display: flex;
     align-items: center;
-    gap: 10px;
+    justify-content: center;
   `;
   
-  const slider = document.createElement('input');
-  slider.type = 'range';
-  slider.min = '0';
-  slider.max = '100';
-  slider.value = soundManager.getVolume() * 100;
-  slider.style.cursor = 'pointer';
-  slider.style.flex = '1';
+  closeButton.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeSettingsPanel();
+  });
   
-  const valueDisplay = document.createElement('span');
-  valueDisplay.innerText = `${slider.value}%`;
-  valueDisplay.style.width = '40px';
-  valueDisplay.style.fontSize = '12px';
+  panelTitle.appendChild(titleText);
+  panelTitle.appendChild(closeButton);
+  settingsPanel.appendChild(panelTitle);
   
-  // 绑定事件
-  slider.oninput = (e: any) => {
+  // 游戏控制组
+  const gameControlsSection = document.createElement('div');
+  gameControlsSection.style.cssText = `
+    border-top: 1px solid rgba(255, 255, 255, 0.2);
+    padding-top: 15px;
+  `;
+  
+  const gameControlsTitle = document.createElement('h4');
+  gameControlsTitle.innerText = '游戏控制';
+  gameControlsTitle.style.margin = '0 0 15px 0';
+  gameControlsTitle.style.fontSize = '14px';
+  gameControlsTitle.style.color = '#00FF00';
+  gameControlsSection.appendChild(gameControlsTitle);
+  
+  // 暂停/恢复按钮
+  const pauseButton = document.createElement('button');
+  pauseButton.innerText = '暂停';
+  pauseButton.style.cssText = `
+    padding: 8px 16px;
+    background: rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: white;
+    border-radius: 5px;
+    cursor: pointer;
+    margin-right: 10px;
+    transition: background 0.2s;
+  `;
+  
+  pauseButton.addEventListener('click', () => {
+    gameState.isPaused = !gameState.isPaused;
+    pauseButton.innerText = gameState.isPaused ? '恢复' : '暂停';
+    if (gameState.isPaused) {
+      app.ticker.stop();
+    } else {
+      app.ticker.start();
+    }
+  });
+  
+  // 重新开始按钮
+  const restartButton = document.createElement('button');
+  restartButton.innerText = '重新开始';
+  restartButton.style.cssText = `
+    padding: 8px 16px;
+    background: rgba(255, 0, 0, 0.3);
+    border: 1px solid rgba(255, 0, 0, 0.5);
+    color: white;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background 0.2s;
+  `;
+  
+  restartButton.addEventListener('click', () => {
+    // 重置游戏状态
+    gameState.experience = 0;
+    gameState.level = 0;
+    gameState.swords = [];
+    gameState.swordCount = 0;
+    gameState.swordSpeed = 0.05;
+    gameState.swordRadius = 80;
+    gameState.isPaused = false;
+    
+    // 清理敌人和子弹
+    enemies.forEach(enemy => app.stage.removeChild(enemy));
+    enemies = [];
+    bullets.forEach(bullet => app.stage.removeChild(bullet));
+    bullets = [];
+    expBeans.forEach(bean => app.stage.removeChild(bean));
+    expBeans = [];
+    
+    // 重置玩家位置
+    player.x = app.screen.width / 2;
+    player.y = app.screen.height / 2;
+    
+    // 重新创建草地
+    grass.forEach(row => row.forEach(tile => app.stage.removeChild(tile)));
+    createGrass();
+    
+    // 确保游戏循环运行
+    if (!app.ticker.started) {
+      app.ticker.start();
+    }
+    
+    pauseButton.innerText = '暂停';
+  });
+  
+  const controlButtons = document.createElement('div');
+  controlButtons.style.cssText = 'display: flex; gap: 10px;';
+  controlButtons.appendChild(pauseButton);
+  controlButtons.appendChild(restartButton);
+  gameControlsSection.appendChild(controlButtons);
+  settingsPanel.appendChild(gameControlsSection);
+  
+  // 视觉优化组
+  const graphicsSection = document.createElement('div');
+  graphicsSection.style.cssText = `
+    border-top: 1px solid rgba(255, 255, 255, 0.2);
+    padding-top: 15px;
+  `;
+  
+  const graphicsTitle = document.createElement('h4');
+  graphicsTitle.innerText = '视觉优化';
+  graphicsTitle.style.margin = '0 0 15px 0';
+  graphicsTitle.style.fontSize = '14px';
+  graphicsTitle.style.color = '#00FF00';
+  graphicsSection.appendChild(graphicsTitle);
+  
+  // 显示/隐藏伤害数字
+  const damageNumbersControl = document.createElement('div');
+  damageNumbersControl.style.cssText = `
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  `;
+  
+  const damageNumbersLabel = document.createElement('span');
+  damageNumbersLabel.innerText = '显示伤害数字';
+  damageNumbersLabel.style.fontSize = '13px';
+  
+  const damageNumbersCheckbox = document.createElement('input');
+  damageNumbersCheckbox.type = 'checkbox';
+  damageNumbersCheckbox.checked = gameState.settings.showDamageNumbers;
+  damageNumbersCheckbox.style.cursor = 'pointer';
+  
+  damageNumbersCheckbox.addEventListener('change', (e: any) => {
+    gameState.settings.showDamageNumbers = e.target.checked;
+    localStorage.setItem('showDamageNumbers', e.target.checked.toString());
+  });
+  
+  damageNumbersControl.appendChild(damageNumbersLabel);
+  damageNumbersControl.appendChild(damageNumbersCheckbox);
+  graphicsSection.appendChild(damageNumbersControl);
+  
+  // 低画质模式
+  const lowQualityControl = document.createElement('div');
+  lowQualityControl.style.cssText = `
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  `;
+  
+  const lowQualityLabel = document.createElement('span');
+  lowQualityLabel.innerText = '低画质模式';
+  lowQualityLabel.style.fontSize = '13px';
+  
+  const lowQualityCheckbox = document.createElement('input');
+  lowQualityCheckbox.type = 'checkbox';
+  lowQualityCheckbox.checked = gameState.settings.lowQualityMode;
+  lowQualityCheckbox.style.cursor = 'pointer';
+  
+  lowQualityCheckbox.addEventListener('change', (e: any) => {
+    gameState.settings.lowQualityMode = e.target.checked;
+    localStorage.setItem('lowQualityMode', e.target.checked.toString());
+  });
+  
+  lowQualityControl.appendChild(lowQualityLabel);
+  lowQualityControl.appendChild(lowQualityCheckbox);
+  graphicsSection.appendChild(lowQualityControl);
+  settingsPanel.appendChild(graphicsSection);
+  
+  // 高级声音设置
+  const audioSection = document.createElement('div');
+  audioSection.style.cssText = `
+    border-top: 1px solid rgba(255, 255, 255, 0.2);
+    padding-top: 15px;
+  `;
+  
+  const audioTitle = document.createElement('h4');
+  audioTitle.innerText = '声音设置';
+  audioTitle.style.margin = '0 0 15px 0';
+  audioTitle.style.fontSize = '14px';
+  audioTitle.style.color = '#00FF00';
+  audioSection.appendChild(audioTitle);
+  
+  // 一键静音按钮
+  const muteButton = document.createElement('button');
+  muteButton.innerHTML = soundManager.isMuted() ? '🔇' : '🔊';
+  muteButton.style.cssText = `
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    font-size: 20px;
+    cursor: pointer;
+    margin-bottom: 15px;
+  `;
+  
+  muteButton.addEventListener('click', () => {
+    const isMuted = soundManager.toggleMute();
+    muteButton.innerHTML = isMuted ? '🔇' : '🔊';
+  });
+  
+  audioSection.appendChild(muteButton);
+  
+  // BGM 音量控制
+  const bgmControl = document.createElement('div');
+  bgmControl.style.cssText = `
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-bottom: 10px;
+  `;
+  
+  const bgmLabel = document.createElement('div');
+  bgmLabel.style.cssText = `
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  `;
+  
+  const bgmText = document.createElement('span');
+  bgmText.innerText = '背景音乐';
+  bgmText.style.fontSize = '13px';
+  
+  const bgmValue = document.createElement('span');
+  bgmValue.innerText = `${Math.round(soundManager.getBgmVolume() * 100)}%`;
+  bgmValue.style.fontSize = '12px';
+  bgmValue.style.width = '40px';
+  
+  bgmLabel.appendChild(bgmText);
+  bgmLabel.appendChild(bgmValue);
+  
+  const bgmSlider = document.createElement('input');
+  bgmSlider.type = 'range';
+  bgmSlider.min = '0';
+  bgmSlider.max = '100';
+  bgmSlider.value = soundManager.getBgmVolume() * 100;
+  bgmSlider.style.cursor = 'pointer';
+  
+  bgmSlider.oninput = (e: any) => {
     const val = e.target.value;
-    valueDisplay.innerText = `${val}%`;
-    soundManager.setVolume(val / 100);
+    bgmValue.innerText = `${val}%`;
+    soundManager.setBgmVolume(val / 100);
   };
   
-  volumeControl.appendChild(slider);
-  volumeControl.appendChild(valueDisplay);
-  volumeContainer.appendChild(volumeLabel);
-  volumeContainer.appendChild(volumeControl);
-  settingsPanel.appendChild(volumeContainer);
+  bgmControl.appendChild(bgmLabel);
+  bgmControl.appendChild(bgmSlider);
+  audioSection.appendChild(bgmControl);
+  
+  // SFX 音量控制
+  const sfxControl = document.createElement('div');
+  sfxControl.style.cssText = `
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  `;
+  
+  const sfxLabel = document.createElement('div');
+  sfxLabel.style.cssText = `
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  `;
+  
+  const sfxText = document.createElement('span');
+  sfxText.innerText = '音效';
+  sfxText.style.fontSize = '13px';
+  
+  const sfxValue = document.createElement('span');
+  sfxValue.innerText = `${Math.round(soundManager.getSfxVolume() * 100)}%`;
+  sfxValue.style.fontSize = '12px';
+  sfxValue.style.width = '40px';
+  
+  sfxLabel.appendChild(sfxText);
+  sfxLabel.appendChild(sfxValue);
+  
+  const sfxSlider = document.createElement('input');
+  sfxSlider.type = 'range';
+  sfxSlider.min = '0';
+  sfxSlider.max = '100';
+  sfxSlider.value = soundManager.getSfxVolume() * 100;
+  sfxSlider.style.cursor = 'pointer';
+  
+  sfxSlider.oninput = (e: any) => {
+    const val = e.target.value;
+    sfxValue.innerText = `${val}%`;
+    soundManager.setSfxVolume(val / 100);
+  };
+  
+  sfxControl.appendChild(sfxLabel);
+  sfxControl.appendChild(sfxSlider);
+  audioSection.appendChild(sfxControl);
+  settingsPanel.appendChild(audioSection);
   
   // 添加到页面
   document.body.appendChild(settingsButton);
+  document.body.appendChild(overlay);
   document.body.appendChild(settingsPanel);
+  
+  // 关闭设置面板的函数
+  function closeSettingsPanel() {
+    settingsPanel.style.display = 'none';
+    overlay.style.display = 'none';
+    gameState.isSettingsOpen = false;
+    // 移除模糊效果
+    if (app.canvas) {
+      app.canvas.style.filter = 'none';
+    }
+  }
   
   // 切换设置面板显示/隐藏
   settingsButton.addEventListener('click', (e) => {
@@ -980,16 +1299,11 @@ function createSettingsMenu() {
     const isOpen = settingsPanel.style.display === 'flex';
     
     if (isOpen) {
-      // 关闭设置面板
-      settingsPanel.style.display = 'none';
-      gameState.isSettingsOpen = false;
-      // 移除模糊效果
-      if (app.canvas) {
-        app.canvas.style.filter = 'none';
-      }
+      closeSettingsPanel();
     } else {
       // 打开设置面板
       settingsPanel.style.display = 'flex';
+      overlay.style.display = 'block';
       gameState.isSettingsOpen = true;
       // 添加模糊效果
       if (app.canvas) {
@@ -998,16 +1312,9 @@ function createSettingsMenu() {
     }
   });
   
-  // 点击面板外的区域关闭面板
-  document.addEventListener('click', (e) => {
-    if (!settingsPanel.contains(e.target as Node) && e.target !== settingsButton && gameState.isSettingsOpen) {
-      settingsPanel.style.display = 'none';
-      gameState.isSettingsOpen = false;
-      // 移除模糊效果
-      if (app.canvas) {
-        app.canvas.style.filter = 'none';
-      }
-    }
+  // 点击遮罩层关闭面板
+  overlay.addEventListener('click', () => {
+    closeSettingsPanel();
   });
   
   // 阻止设置面板的事件穿透
@@ -1019,6 +1326,24 @@ function createSettingsMenu() {
   settingsPanel.addEventListener('mousedown', preventEventPropagation);
   settingsPanel.addEventListener('touchstart', preventEventPropagation);
   settingsPanel.addEventListener('click', preventEventPropagation);
+  
+  // 从 localStorage 加载设置
+  const loadSettings = () => {
+    const savedShowDamageNumbers = localStorage.getItem('showDamageNumbers');
+    if (savedShowDamageNumbers) {
+      gameState.settings.showDamageNumbers = savedShowDamageNumbers === 'true';
+      damageNumbersCheckbox.checked = gameState.settings.showDamageNumbers;
+    }
+    
+    const savedLowQualityMode = localStorage.getItem('lowQualityMode');
+    if (savedLowQualityMode) {
+      gameState.settings.lowQualityMode = savedLowQualityMode === 'true';
+      lowQualityCheckbox.checked = gameState.settings.lowQualityMode;
+    }
+  };
+  
+  // 加载设置
+  loadSettings();
 }
 
 // 启动游戏

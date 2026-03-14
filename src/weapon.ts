@@ -10,7 +10,24 @@ const laserConfig = {
   glowAlpha: 0.5, // 发光层透明度
   jitter: 2, // 激光抖动幅度
   playerSpeedReduction: 0.5, // 激光激活时移动速度降低比例
+  energyConsumption: 5, // 每秒能量消耗
+  energyRecovery: 10, // 每秒能量恢复
+  maxEnergy: 100, // 最大能量
+  cooldownTime: 3000, // 过热冷却时间（毫秒）
+  damageInterval: 100, // 伤害判定间隔（毫秒）
+  gridSize: 100, // 网格大小
 };
+
+// 网格接口
+interface Grid {
+  [key: string]: PIXI.Graphics[];
+}
+
+// 敌人接口
+interface Enemy extends PIXI.Graphics {
+  isPendingDestroy?: boolean;
+  lastDamageTime?: number;
+}
 
 // 激光武器类
 export class LaserScanner {
@@ -23,6 +40,12 @@ export class LaserScanner {
   private laserGraphics: PIXI.Graphics;
   private glowGraphics: PIXI.Graphics;
   private hitEffects: PIXI.Graphics[] = [];
+  private energy: number = laserConfig.maxEnergy;
+  private isOverheated: boolean = false;
+  private lastEnergyUpdate: number = Date.now();
+  private lastCooldownTime: number = 0;
+  private energyBar: PIXI.Graphics;
+  private grid: Grid = {};
 
   constructor(app: PIXI.Application, player: PIXI.Graphics, enemies: PIXI.Graphics[], expBeans: PIXI.Graphics[]) {
     this.app = app;
@@ -41,8 +64,41 @@ export class LaserScanner {
     this.glowGraphics.zIndex = 19;
     app.stage.addChild(this.glowGraphics);
 
+    // 创建能量条
+    this.createEnergyBar();
+
     // 初始化鼠标/触摸事件
     this.initInput();
+  }
+
+  // 创建能量条
+  private createEnergyBar() {
+    this.energyBar = new PIXI.Graphics();
+    this.energyBar.zIndex = 30;
+    this.app.stage.addChild(this.energyBar);
+    this.updateEnergyBar();
+  }
+
+  // 更新能量条
+  private updateEnergyBar() {
+    this.energyBar.clear();
+    
+    const width = 200;
+    const height = 10;
+    const x = (this.app.screen.width - width) / 2;
+    const y = 30;
+    
+    // 背景
+    this.energyBar.beginFill(0x333333);
+    this.energyBar.drawRect(x, y, width, height);
+    this.energyBar.endFill();
+    
+    // 能量条
+    const energyWidth = (this.energy / laserConfig.maxEnergy) * width;
+    const color = this.isOverheated ? 0xFF0000 : 0x00FF00;
+    this.energyBar.beginFill(color);
+    this.energyBar.drawRect(x, y, energyWidth, height);
+    this.energyBar.endFill();
   }
 
   // 初始化输入事件
@@ -109,6 +165,15 @@ export class LaserScanner {
 
   // 更新激光
   public update() {
+    // 更新能量
+    this.updateEnergy();
+
+    // 检查是否过热
+    if (this.isOverheated) {
+      this.clearLaser();
+      return;
+    }
+
     if (!this.isActive) {
       this.clearLaser();
       return;
@@ -117,11 +182,75 @@ export class LaserScanner {
     // 绘制激光
     this.drawLaser();
 
+    // 构建网格
+    this.buildGrid();
+
     // 检测碰撞
     this.checkCollisions();
 
     // 更新击中效果
     this.updateHitEffects();
+
+    // 更新能量条
+    this.updateEnergyBar();
+  }
+
+  // 更新能量
+  private updateEnergy() {
+    const now = Date.now();
+    const deltaTime = (now - this.lastEnergyUpdate) / 1000; // 转换为秒
+    this.lastEnergyUpdate = now;
+
+    if (this.isOverheated) {
+      // 冷却时间
+      if (now - this.lastCooldownTime >= laserConfig.cooldownTime) {
+        this.isOverheated = false;
+        this.energy = laserConfig.maxEnergy;
+      }
+      return;
+    }
+
+    if (this.isActive) {
+      // 消耗能量
+      this.energy -= laserConfig.energyConsumption * deltaTime;
+      if (this.energy <= 0) {
+        this.energy = 0;
+        this.isOverheated = true;
+        this.isActive = false;
+        this.lastCooldownTime = now;
+        this.clearLaser();
+      }
+    } else {
+      // 恢复能量
+      this.energy += laserConfig.energyRecovery * deltaTime;
+      if (this.energy > laserConfig.maxEnergy) {
+        this.energy = laserConfig.maxEnergy;
+      }
+    }
+  }
+
+  // 构建网格
+  private buildGrid() {
+    // 清空网格
+    this.grid = {};
+
+    // 将敌人分配到网格
+    this.enemies.forEach(enemy => {
+      const bounds = enemy.getBounds();
+      const centerX = bounds.x + bounds.width / 2;
+      const centerY = bounds.y + bounds.height / 2;
+
+      // 计算网格坐标
+      const gridX = Math.floor(centerX / laserConfig.gridSize);
+      const gridY = Math.floor(centerY / laserConfig.gridSize);
+      const gridKey = `${gridX},${gridY}`;
+
+      // 将敌人添加到网格
+      if (!this.grid[gridKey]) {
+        this.grid[gridKey] = [];
+      }
+      this.grid[gridKey].push(enemy);
+    });
   }
 
   // 绘制激光
@@ -153,17 +282,43 @@ export class LaserScanner {
     const endX = this.targetPosition.x;
     const endY = this.targetPosition.y;
 
-    // 线段对敌人的碰撞检测
-    this.enemies.forEach((enemy, index) => {
+    // 获取激光路径经过的网格
+    const gridKeys = this.getGridKeysAlongLine(startX, startY, endX, endY);
+
+    // 收集需要检测的敌人
+    const enemiesToCheck: { enemy: PIXI.Graphics; index: number }[] = [];
+
+    gridKeys.forEach(gridKey => {
+      const gridEnemies = this.grid[gridKey];
+      if (gridEnemies) {
+        gridEnemies.forEach(enemy => {
+          const index = this.enemies.indexOf(enemy);
+          if (index !== -1) {
+            enemiesToCheck.push({ enemy, index });
+          }
+        });
+      }
+    });
+
+    // 逆序遍历敌人（从后往前）
+    for (let i = enemiesToCheck.length - 1; i >= 0; i--) {
+      const { enemy, index } = enemiesToCheck[i];
       const enemyBounds = enemy.getBounds();
       const enemyCenterX = enemyBounds.x + enemyBounds.width / 2;
       const enemyCenterY = enemyBounds.y + enemyBounds.height / 2;
       const enemyRadius = Math.min(enemyBounds.width, enemyBounds.height) / 2;
 
-      if (this.lineCircleIntersection(startX, startY, endX, endY, enemyCenterX, enemyCenterY, enemyRadius)) {
-        // 移除敌人
-        this.app.stage.removeChild(enemy);
-        this.enemies.splice(index, 1);
+      // 检查是否在伤害间隔内
+      const now = Date.now();
+      const lastDamageTime = (enemy as Enemy).lastDamageTime || 0;
+      if (now - lastDamageTime < laserConfig.damageInterval) {
+        continue;
+      }
+
+      if (this.raycast(startX, startY, endX, endY, enemyCenterX, enemyCenterY, enemyRadius)) {
+        // 标记敌人为待销毁
+        (enemy as Enemy).isPendingDestroy = true;
+        (enemy as Enemy).lastDamageTime = now;
 
         // 生成经验豆
         const expBean = new PIXI.Graphics();
@@ -178,7 +333,86 @@ export class LaserScanner {
         // 创建击中效果
         this.createHitEffect(enemyCenterX, enemyCenterY);
       }
-    });
+    }
+
+    // 统一清理待销毁的敌人
+    this.cleanupEnemies();
+  }
+
+  // 获取激光路径经过的网格
+  private getGridKeysAlongLine(x1: number, y1: number, x2: number, y2: number): string[] {
+    const gridKeys = new Set<string>();
+    
+    const dx = Math.abs(x2 - x1);
+    const dy = Math.abs(y2 - y1);
+    const sx = x1 < x2 ? 1 : -1;
+    const sy = y1 < y2 ? 1 : -1;
+    let err = dx - dy;
+    
+    let x = x1;
+    let y = y1;
+    
+    while (true) {
+      const gridX = Math.floor(x / laserConfig.gridSize);
+      const gridY = Math.floor(y / laserConfig.gridSize);
+      gridKeys.add(`${gridX},${gridY}`);
+      
+      if (x === x2 && y === y2) break;
+      
+      const e2 = 2 * err;
+      if (e2 > -dy) {
+        err -= dy;
+        x += sx;
+      }
+      if (e2 < dx) {
+        err += dx;
+        y += sy;
+      }
+    }
+    
+    return Array.from(gridKeys);
+  }
+
+  // 射线投射碰撞检测
+  private raycast(x1: number, y1: number, x2: number, y2: number, cx: number, cy: number, radius: number): boolean {
+    // 计算射线方向向量
+    const dirX = x2 - x1;
+    const dirY = y2 - y1;
+    
+    // 计算从射线起点到圆心的向量
+    const distX = cx - x1;
+    const distY = cy - y1;
+    
+    // 计算射线长度的平方
+    const rayLengthSq = dirX * dirX + dirY * dirY;
+    
+    // 计算点积
+    const dotProduct = distX * dirX + distY * dirY;
+    
+    // 计算投影点到射线起点的距离
+    const t = Math.max(0, Math.min(dotProduct / rayLengthSq, 1));
+    
+    // 计算投影点
+    const closestX = x1 + t * dirX;
+    const closestY = y1 + t * dirY;
+    
+    // 计算投影点到圆心的距离
+    const distanceSq = (closestX - cx) ** 2 + (closestY - cy) ** 2;
+    
+    return distanceSq <= radius * radius;
+  }
+
+  // 清理待销毁的敌人
+  private cleanupEnemies() {
+    for (let i = this.enemies.length - 1; i >= 0; i--) {
+      const enemy = this.enemies[i];
+      if ((enemy as Enemy).isPendingDestroy) {
+        // 释放资源
+        enemy.destroy({ children: true, texture: true });
+        // 从数组中移除
+        this.enemies.splice(i, 1);
+      }
+    }
   }
 
   // 线段与圆的碰撞检测
